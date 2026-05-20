@@ -127,7 +127,8 @@ function timestampedName(kind: string) {
 <template>
   <main class="popup">
     <header class="header">
-      <h1>JustWatch CSV</h1>
+      <h1>Seen list exporter</h1>
+      <p>Scan your JustWatch Seen list, choose what to keep, then export CSVs for Letterboxd or Trakt.</p>
     </header>
 
     <button class="primary" :disabled="isScanning" @click="scanPage">

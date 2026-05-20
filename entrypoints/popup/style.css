@@ -1,13 +1,28 @@
 :root {
-  color: oklch(24% 0.018 255deg);
-  background: oklch(97% 0.006 255deg);
+  --scrollbar-gutter: stable;
+  --ink: oklch(22% 0.025 262deg);
+  --muted: oklch(52% 0.028 262deg);
+  --soft: oklch(95.5% 0.009 262deg);
+  --surface: oklch(99% 0.004 262deg);
+  --line: oklch(88% 0.016 262deg);
+  --accent: oklch(49% 0.18 263deg);
+  --accent-hover: oklch(45% 0.19 263deg);
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 24px 0, oklch(94% 0.035 263deg), transparent 120px),
+    oklch(96.5% 0.009 262deg);
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
   width: 360px;
   margin: 0;
+  scrollbar-gutter: var(--scrollbar-gutter);
 }
 
 button {
@@ -16,13 +31,26 @@ button {
   justify-content: center;
   gap: 8px;
   min-height: 36px;
-  border: 1px solid oklch(84% 0.018 255deg);
-  border-radius: 8px;
-  background: oklch(99% 0.003 255deg);
-  color: oklch(24% 0.018 255deg);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+  color: var(--ink);
   font: inherit;
-  font-weight: 650;
+  font-weight: 700;
   cursor: pointer;
+  transition:
+    background 140ms ease-out,
+    border-color 140ms ease-out,
+    transform 140ms ease-out;
+}
+
+button:not(:disabled):hover {
+  border-color: oklch(80% 0.026 262deg);
+  background: oklch(97.5% 0.007 262deg);
+}
+
+button:not(:disabled):active {
+  transform: translateY(1px);
 }
 
 button:disabled {
@@ -32,8 +60,8 @@ button:disabled {
 
 .popup {
   display: grid;
-  gap: 14px;
-  padding: 16px;
+  gap: 13px;
+  padding: 18px;
 }
 
 .header {
@@ -43,13 +71,16 @@ button:disabled {
 
 .header h1 {
   margin: 0;
-  font-size: 18px;
+  font-size: 17px;
+  font-weight: 760;
   line-height: 1.2;
+  letter-spacing: -0.025em;
 }
 
+.header p,
 .note {
   margin: 0;
-  color: oklch(48% 0.026 255deg);
+  color: var(--muted);
   font-size: 13px;
   line-height: 1.4;
 }
@@ -62,50 +93,64 @@ button:disabled {
 }
 
 .primary {
-  border-color: oklch(49% 0.18 263deg);
-  background: oklch(49% 0.18 263deg);
+  min-height: 38px;
+  border-color: var(--accent);
+  background: linear-gradient(180deg, oklch(55% 0.19 263deg), var(--accent));
   color: oklch(99% 0.004 255deg);
+  box-shadow: 0 8px 18px oklch(49% 0.18 263deg / 0.2);
+}
+
+.primary:not(:disabled):hover {
+  border-color: var(--accent-hover);
+  background: linear-gradient(180deg, oklch(52% 0.19 263deg), var(--accent-hover));
 }
 
 .stats {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--surface);
 }
 
 .stats div {
   display: grid;
   gap: 2px;
   min-width: 0;
-  padding: 9px 6px;
-  border: 1px solid oklch(89% 0.014 255deg);
-  border-radius: 8px;
-  background: oklch(99% 0.003 255deg);
+  padding: 10px 6px;
   text-align: center;
 }
 
+.stats div + div {
+  border-left: 1px solid var(--line);
+}
+
 .stats strong {
-  font-size: 17px;
+  font-size: 16px;
+  font-weight: 780;
   line-height: 1.1;
 }
 
 .stats span {
   overflow-wrap: anywhere;
-  color: oklch(53% 0.024 255deg);
+  color: var(--muted);
   font-size: 11px;
 }
 
 .export-list {
   overflow: hidden;
-  border: 1px solid oklch(89% 0.014 255deg);
-  border-radius: 10px;
-  background: oklch(99% 0.003 255deg);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 10px 26px oklch(25% 0.03 262deg / 0.07);
 }
 
 .export-list__summary {
   justify-content: flex-start;
   width: 100%;
-  min-height: 40px;
+  min-height: 44px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -114,7 +159,7 @@ button:disabled {
 
 .export-list__summary > span {
   width: 14px;
-  color: oklch(49% 0.18 263deg);
+  color: var(--accent);
   font-size: 16px;
   line-height: 1;
 }
@@ -126,7 +171,7 @@ button:disabled {
 .export-list__body {
   display: grid;
   gap: 10px;
-  padding: 0 10px 10px;
+  padding: 0 10px 12px;
   font-size: 13px;
 }
 
@@ -138,13 +183,14 @@ button:disabled {
 
 .bulk-actions button {
   min-height: 28px;
-  border-radius: 7px;
-  background: oklch(96% 0.008 255deg);
+  border-radius: 9px;
+  background: var(--soft);
   font-size: 12px;
+  font-weight: 680;
 }
 
 .selection-counts {
-  color: oklch(48% 0.026 255deg);
+  color: var(--muted);
   font-size: 12px;
 }
 
@@ -152,8 +198,10 @@ button:disabled {
   display: grid;
   max-height: 260px;
   overflow: auto;
-  border: 1px solid oklch(91% 0.012 255deg);
-  border-radius: 8px;
+  scrollbar-gutter: var(--scrollbar-gutter);
+  border: 1px solid oklch(91% 0.012 262deg);
+  border-radius: 11px;
+  background: oklch(98% 0.005 262deg);
 }
 
 .title-row {
@@ -163,20 +211,24 @@ button:disabled {
   gap: 9px;
   min-width: 0;
   padding: 7px 8px;
-  color: oklch(32% 0.022 255deg);
+  color: var(--ink);
+}
+
+.title-row:hover {
+  background: oklch(96.5% 0.011 262deg);
 }
 
 .title-row + .title-row {
-  border-top: 1px solid oklch(92% 0.01 255deg);
+  border-top: 1px solid oklch(92% 0.01 262deg);
 }
 
 .title-row img,
 .poster-fallback {
   width: 34px;
   height: 50px;
-  border-radius: 5px;
+  border-radius: 7px;
   object-fit: cover;
-  background: oklch(91% 0.014 255deg);
+  background: oklch(91% 0.014 262deg);
 }
 
 .title-row__copy {
@@ -193,12 +245,12 @@ button:disabled {
 }
 
 .title-row__copy span {
-  color: oklch(53% 0.024 255deg);
+  color: var(--muted);
   font-size: 12px;
 }
 
 .export-list input {
-  accent-color: oklch(49% 0.18 263deg);
+  accent-color: var(--accent);
 }
 
 .actions {
@@ -208,7 +260,7 @@ button:disabled {
 }
 
 .actions button span {
-  color: oklch(53% 0.024 255deg);
+  color: var(--muted);
   font-size: 12px;
   font-weight: 700;
 }
