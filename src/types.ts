@@ -14,6 +14,11 @@ export interface JustWatchItem {
   href: string;
   url: string;
   posterId?: string;
+  posterUrl?: string;
+  description?: string;
+  imdbRating?: string;
+  watchProvider?: string;
+  seen?: boolean;
   externalIds: ExternalId[];
   unresolvedReason?: string;
 }

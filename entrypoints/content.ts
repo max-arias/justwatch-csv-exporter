@@ -1,41 +1,99 @@
 import {
   buildScanSummary,
-  enrichItemsWithExternalIds,
   parseJustWatchListDocument,
   type ScanResponse,
 } from '../src/justwatch';
+import { onMessage } from '../src/messaging';
 
 export default defineContentScript({
   matches: ['https://www.justwatch.com/*'],
   main() {
-    browser.runtime.onMessage.addListener((message) => {
-      if (!message || message.type !== 'SCAN_JUSTWATCH_LIST') return;
-
-      return scanPage(Boolean(message.autoScroll));
-    });
+    onMessage('scanJustWatchList', (message) => scanPage(message.data.autoScroll));
   },
 });
 
 async function scanPage(autoScroll: boolean): Promise<ScanResponse> {
+  await prepareSeenListView();
+
   if (autoScroll) {
     await scrollUntilStable();
   }
 
   const items = parseJustWatchListDocument(document);
-  const enriched = await enrichItemsWithExternalIds(items, document.baseURI, fetchDetailPage);
+  // Detail-page fetching is intentionally disabled for now. The listing page
+  // already provides enough data for Letterboxd exports, and fetching every
+  // detail page can trigger JustWatch rate limits.
+  const listingItemsOnly = items.map((item) => ({
+    ...item,
+    unresolvedReason:
+      item.externalIds.length === 0
+        ? 'Detail-page fetching disabled; external IDs were not present on the listing page'
+        : item.unresolvedReason,
+  }));
 
   return {
-    items: enriched,
-    summary: buildScanSummary(enriched),
+    items: listingItemsOnly,
+    summary: buildScanSummary(listingItemsOnly),
   };
 }
 
-async function fetchDetailPage(url: string): Promise<string> {
-  const response = await fetch(url, { credentials: 'include' });
-  if (!response.ok) {
-    throw new Error(`Failed to fetch ${url}: ${response.status}`);
+async function prepareSeenListView() {
+  if (clickMyListsTab()) {
+    await waitFor(() => Boolean(findLinkByText('My Lists')?.closest('.navigation-tab-item')?.classList.contains('active')));
   }
-  return response.text();
+
+  if (clickSeenTab()) {
+    await waitFor(() => Boolean(findTabByText('Seen')?.classList.contains('active')));
+  }
+
+  if (clickFirstLayoutOption()) {
+    await waitFor(() => Boolean(document.querySelector('.list-layout-switcher__item.active')));
+  }
+}
+
+function clickMyListsTab(): boolean {
+  const myListsLink = findLinkByText('My Lists');
+  const myListsTab = myListsLink?.closest<HTMLElement>('.navigation-tab-item');
+  if (myListsLink && !myListsTab?.classList.contains('active')) {
+    myListsLink.click();
+    return true;
+  }
+  return false;
+}
+
+function clickSeenTab(): boolean {
+  const seenTab = findTabByText('Seen');
+  if (seenTab && !seenTab.classList.contains('active')) {
+    seenTab.click();
+    return true;
+  }
+  return false;
+}
+
+function clickFirstLayoutOption(): boolean {
+  const firstLayoutOption = document.querySelector<HTMLElement>('.list-layout-switcher__item');
+  if (firstLayoutOption && !firstLayoutOption.classList.contains('active')) {
+    firstLayoutOption.click();
+    return true;
+  }
+  return false;
+}
+
+function findLinkByText(text: string): HTMLAnchorElement | undefined {
+  return Array.from(document.querySelectorAll<HTMLAnchorElement>('a'))
+    .find((anchor) => anchor.textContent?.trim() === text);
+}
+
+function findTabByText(text: string): HTMLElement | undefined {
+  return Array.from(document.querySelectorAll<HTMLElement>('.watchlist-inner-tab-navigation__item'))
+    .find((tab) => tab.textContent?.trim() === text);
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs = 5_000) {
+  const startedAt = Date.now();
+  while (!predicate() && Date.now() - startedAt < timeoutMs) {
+    await delay(100);
+  }
 }
 
 async function scrollUntilStable() {

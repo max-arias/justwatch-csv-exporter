@@ -10,9 +10,11 @@ export type {
 export {
   buildLetterboxdCsv,
   buildTraktCsv,
-  buildUnresolvedCsv,
+  countLetterboxdRows,
+  countTraktRows,
   csvEscape,
   downloadCsv,
+  type ExportFilters,
 } from './lib/csv';
 export {
   buildScanSummary,

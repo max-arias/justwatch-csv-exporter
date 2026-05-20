@@ -1,42 +1,34 @@
 import type { JustWatchItem } from '../types';
 
-export function buildLetterboxdCsv(items: JustWatchItem[]): string {
+export interface ExportFilters {
+  movies: boolean;
+  series: boolean;
+}
+
+const ALL_TYPES: ExportFilters = { movies: true, series: true };
+
+export function buildLetterboxdCsv(items: JustWatchItem[], filters: ExportFilters = ALL_TYPES): string {
   const rows = items
-    .filter((item) => item.type === 'movie' && item.title && item.year)
+    .filter((item) => filters.movies && item.type === 'movie' && item.title && item.year)
     .map((item) => [item.title, item.year ?? '']);
 
   return toCsv([['Title', 'Year'], ...rows]);
 }
 
-export function buildTraktCsv(items: JustWatchItem[]): string {
+export function buildTraktCsv(items: JustWatchItem[], filters: ExportFilters = ALL_TYPES): string {
   const rows = items
-    .map((item) => {
-      const id = preferredExternalId(item);
-      if (!id || item.type === 'unknown') return undefined;
-      return [
-        id.kind === 'imdb_id' ? id.value : '',
-        id.kind === 'tmdb_id' ? id.value : '',
-        id.kind === 'tvdb_id' ? id.value : '',
-        item.type,
-      ];
-    })
-    .filter((row): row is string[] => Boolean(row));
+    .filter((item) => isIncludedByType(item, filters) && item.title && item.year)
+    .map((item) => [item.title, item.year ?? '', item.type, 'watched']);
 
-  return toCsv([['imdb_id', 'tmdb_id', 'tvdb_id', 'type'], ...rows]);
+  return toCsv([['title', 'year', 'type', 'action'], ...rows]);
 }
 
-export function buildUnresolvedCsv(items: JustWatchItem[]): string {
-  const rows = items
-    .filter((item) => item.type === 'unknown' || item.externalIds.length === 0)
-    .map((item) => [
-      item.title,
-      item.year ?? '',
-      item.type,
-      item.url,
-      item.unresolvedReason ?? '',
-    ]);
+export function countLetterboxdRows(items: JustWatchItem[], filters: ExportFilters): number {
+  return items.filter((item) => filters.movies && item.type === 'movie' && item.title && item.year).length;
+}
 
-  return toCsv([['Title', 'Year', 'Type', 'JustWatch URL', 'Reason'], ...rows]);
+export function countTraktRows(items: JustWatchItem[], filters: ExportFilters): number {
+  return items.filter((item) => isIncludedByType(item, filters) && item.title && item.year).length;
 }
 
 export function downloadCsv(filename: string, csv: string) {
@@ -58,10 +50,6 @@ function toCsv(rows: string[][]): string {
   return `${rows.map((row) => row.map(csvEscape).join(',')).join('\r\n')}\r\n`;
 }
 
-function preferredExternalId(item: JustWatchItem) {
-  return (
-    item.externalIds.find((id) => id.kind === 'imdb_id') ??
-    item.externalIds.find((id) => id.kind === 'tmdb_id') ??
-    item.externalIds.find((id) => id.kind === 'tvdb_id')
-  );
+function isIncludedByType(item: JustWatchItem, filters: ExportFilters): boolean {
+  return (filters.movies && item.type === 'movie') || (filters.series && item.type === 'show');
 }
