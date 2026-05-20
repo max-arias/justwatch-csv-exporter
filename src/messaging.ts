@@ -1,5 +1,5 @@
 import { defineExtensionMessaging } from '@webext-core/messaging';
-import type { ScanResponse } from './types';
+import type { ScanResponse, ScanState } from './types';
 
 export interface ScanJustWatchListPayload {
   autoScroll: boolean;
@@ -7,6 +7,8 @@ export interface ScanJustWatchListPayload {
 
 interface ProtocolMap {
   scanJustWatchList(data: ScanJustWatchListPayload): ScanResponse;
+  startJustWatchScan(data: ScanJustWatchListPayload): ScanState;
+  getJustWatchScanState(): ScanState;
 }
 
 export const { onMessage, sendMessage } = defineExtensionMessaging<ProtocolMap>();

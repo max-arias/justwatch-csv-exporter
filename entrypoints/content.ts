@@ -2,15 +2,68 @@ import {
   buildScanSummary,
   parseJustWatchListDocument,
   type ScanResponse,
+  type ScanState,
 } from '../src/justwatch';
 import { onMessage } from '../src/messaging';
+
+const emptySummary = {
+  scanned: 0,
+  letterboxdRows: 0,
+  traktRows: 0,
+  unresolvedRows: 0,
+};
+
+let scanState: ScanState = {
+  status: 'idle',
+  items: [],
+  summary: emptySummary,
+};
+
+let activeScan: Promise<void> | undefined;
 
 export default defineContentScript({
   matches: ['https://www.justwatch.com/*'],
   main() {
     onMessage('scanJustWatchList', (message) => scanPage(message.data.autoScroll));
+    onMessage('startJustWatchScan', (message) => startScan(message.data.autoScroll));
+    onMessage('getJustWatchScanState', () => scanState);
   },
 });
+
+function startScan(autoScroll: boolean): ScanState {
+  if (scanState.status === 'scanning') {
+    return scanState;
+  }
+
+  scanState = {
+    status: 'scanning',
+    items: [],
+    summary: emptySummary,
+  };
+
+  activeScan = scanPage(autoScroll)
+    .then((response) => {
+      scanState = {
+        status: 'complete',
+        ...response,
+      };
+    })
+    .catch((error) => {
+      scanState = {
+        status: 'error',
+        items: [],
+        summary: emptySummary,
+        error: error instanceof Error ? error.message : 'Scan failed',
+      };
+    })
+    .finally(() => {
+      activeScan = undefined;
+    });
+
+  void activeScan;
+
+  return scanState;
+}
 
 async function scanPage(autoScroll: boolean): Promise<ScanResponse> {
   await prepareSeenListView();

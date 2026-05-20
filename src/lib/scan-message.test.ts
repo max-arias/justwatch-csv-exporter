@@ -7,9 +7,14 @@ vi.mock('@webext-core/messaging', () => ({
   }),
 }));
 
-import { isMissingReceivingEndError, sendScanMessage } from './scan-message';
+import {
+  getScanStateMessage,
+  isMissingReceivingEndError,
+  sendScanMessage,
+  startScanMessage,
+} from './scan-message';
 import type { ScanJustWatchListPayload } from '../messaging';
-import type { ScanResponse } from '../types';
+import type { ScanResponse, ScanState } from '../types';
 
 const request: ScanJustWatchListPayload = { autoScroll: true };
 const response: ScanResponse = {
@@ -20,6 +25,11 @@ const response: ScanResponse = {
     traktRows: 0,
     unresolvedRows: 0,
   },
+};
+const scanningState: ScanState = {
+  status: 'scanning',
+  items: [],
+  summary: response.summary,
 };
 
 describe('scan messaging', () => {
@@ -67,6 +77,28 @@ describe('scan messaging', () => {
     await expect(sendScanMessage(browserApi, 12, request, sendMessage)).rejects.toBe(error);
 
     expect(browserApi.scripting.executeScript).not.toHaveBeenCalled();
+  });
+
+  it('starts a persisted content-script scan without waiting for completion', async () => {
+    const browserApi = {
+      scripting: { executeScript: vi.fn() },
+    };
+    const sendMessage = vi.fn().mockResolvedValue(scanningState);
+
+    await expect(startScanMessage(browserApi, 12, request, sendMessage)).resolves.toBe(scanningState);
+
+    expect(sendMessage).toHaveBeenCalledWith('startJustWatchScan', request, { tabId: 12, frameId: 0 });
+  });
+
+  it('reads persisted scan state from the content script', async () => {
+    const browserApi = {
+      scripting: { executeScript: vi.fn() },
+    };
+    const sendMessage = vi.fn().mockResolvedValue(scanningState);
+
+    await expect(getScanStateMessage(browserApi, 12, sendMessage)).resolves.toBe(scanningState);
+
+    expect(sendMessage).toHaveBeenCalledWith('getJustWatchScanState', undefined, { tabId: 12, frameId: 0 });
   });
 
   it('detects missing receiving end errors', () => {

@@ -34,3 +34,12 @@ export interface ScanResponse {
   items: JustWatchItem[];
   summary: ScanSummary;
 }
+
+export type ScanStatus = 'idle' | 'scanning' | 'complete' | 'error';
+
+export interface ScanState {
+  status: ScanStatus;
+  items: JustWatchItem[];
+  summary: ScanSummary;
+  error?: string;
+}

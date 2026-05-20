@@ -4,6 +4,8 @@ export type {
   JustWatchItem,
   JustWatchItemType,
   ScanResponse,
+  ScanState,
+  ScanStatus,
   ScanSummary,
 } from './types';
 

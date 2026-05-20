@@ -1,5 +1,5 @@
 import { sendMessage as sendExtensionMessage, type ScanJustWatchListPayload } from '../messaging';
-import type { ScanResponse } from '../types';
+import type { ScanResponse, ScanState } from '../types';
 
 interface BrowserMessagingApi {
   scripting: {
@@ -8,10 +8,16 @@ interface BrowserMessagingApi {
 }
 
 type SendScanListMessage = (
-  type: 'scanJustWatchList',
+  type: 'scanJustWatchList' | 'startJustWatchScan',
   data: ScanJustWatchListPayload,
   target: { tabId: number; frameId: number },
-) => Promise<ScanResponse>;
+) => Promise<ScanResponse | ScanState>;
+
+type SendScanStateMessage = (
+  type: 'getJustWatchScanState',
+  data: undefined,
+  target: { tabId: number; frameId: number },
+) => Promise<ScanState>;
 
 const CONTENT_SCRIPT_FILE = 'content-scripts/content.js';
 
@@ -21,10 +27,39 @@ export async function sendScanMessage(
   data: ScanJustWatchListPayload,
   sendMessage: SendScanListMessage = sendExtensionMessage,
 ): Promise<ScanResponse> {
-  const target = { tabId, frameId: 0 };
+  return sendContentScriptMessage(browserApi, tabId, () =>
+    sendMessage('scanJustWatchList', data, targetFor(tabId)),
+  ) as Promise<ScanResponse>;
+}
 
+export async function startScanMessage(
+  browserApi: BrowserMessagingApi,
+  tabId: number,
+  data: ScanJustWatchListPayload,
+  sendMessage: SendScanListMessage = sendExtensionMessage,
+): Promise<ScanState> {
+  return sendContentScriptMessage(browserApi, tabId, () =>
+    sendMessage('startJustWatchScan', data, targetFor(tabId)),
+  ) as Promise<ScanState>;
+}
+
+export async function getScanStateMessage(
+  browserApi: BrowserMessagingApi,
+  tabId: number,
+  sendMessage: SendScanStateMessage = sendExtensionMessage,
+): Promise<ScanState> {
+  return sendContentScriptMessage(browserApi, tabId, () =>
+    sendMessage('getJustWatchScanState', undefined, targetFor(tabId)),
+  ) as Promise<ScanState>;
+}
+
+async function sendContentScriptMessage<T>(
+  browserApi: BrowserMessagingApi,
+  tabId: number,
+  send: () => Promise<T>,
+): Promise<T> {
   try {
-    return await sendMessage('scanJustWatchList', data, target);
+    return await send();
   } catch (error) {
     if (!isMissingReceivingEndError(error)) {
       throw error;
@@ -35,8 +70,12 @@ export async function sendScanMessage(
       files: [CONTENT_SCRIPT_FILE],
     });
 
-    return sendMessage('scanJustWatchList', data, target);
+    return send();
   }
+}
+
+function targetFor(tabId: number) {
+  return { tabId, frameId: 0 };
 }
 
 export function isMissingReceivingEndError(error: unknown): boolean {

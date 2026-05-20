@@ -17,9 +17,13 @@
     "wxt": "^0.20.26"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.0",
     "@types/chrome": "^0.1.12",
     "@vue/test-utils": "^2.4.6",
+    "@wxt-dev/auto-icons": "^1.1.1",
+    "daisyui": "^5.5.20",
     "jsdom": "^27.2.0",
+    "tailwindcss": "^4.3.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.14",
     "vue-tsc": "^3.1.5"
