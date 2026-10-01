@@ -7,6 +7,12 @@
     "dev": "wxt",
     "build": "wxt build",
     "zip": "wxt zip",
+    "zip:chrome": "wxt zip -b chrome --mv3",
+    "zip:firefox": "wxt zip -b firefox --mv2",
+    "release:validate": "node scripts/release.mjs validate",
+    "release:package": "node scripts/release.mjs package",
+    "release:verify": "node scripts/release.mjs verify",
+    "test:release": "node --test scripts/release.test.mjs",
     "test": "vitest run",
     "typecheck": "wxt prepare && vue-tsc --noEmit"
   },

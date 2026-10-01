@@ -1,0 +1,364 @@
+name: Release
+
+on:
+  pull_request:
+    branches: [main]
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Original merged Release workflow run ID
+        required: true
+        type: string
+      store:
+        description: Store submission to retry
+        required: true
+        default: all
+        type: choice
+        options: [all, chrome, edge, firefox]
+      dry_run:
+        description: Authenticate and validate without publishing
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  prepare:
+    name: Prepare release package
+    if: >-
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.merged == true &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       startsWith(github.event.pull_request.head.ref, 'release/')) ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    outputs:
+      artifact_run_id: ${{ github.event_name == 'pull_request' && github.run_id || inputs.run_id }}
+      dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+      sha: ${{ steps.metadata.outputs.sha }}
+      store: ${{ github.event_name == 'workflow_dispatch' && inputs.store || 'all' }}
+      tag: ${{ steps.metadata.outputs.tag }}
+      version: ${{ steps.metadata.outputs.version }}
+    steps:
+      - name: Verify retry source run provenance
+        id: retry_provenance
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/github-script@v7
+        env:
+          SOURCE_RUN_ID: ${{ inputs.run_id }}
+        with:
+          script: |
+            const runId = process.env.SOURCE_RUN_ID;
+            if (!/^[1-9]\d*$/.test(runId)) {
+              throw new Error('run_id must be a positive workflow run ID');
+            }
+
+            const { owner, repo } = context.repo;
+            const workflow = await github.rest.actions.getWorkflow({
+              owner,
+              repo,
+              workflow_id: 'release.yml',
+            });
+            if (workflow.data.path !== '.github/workflows/release.yml') {
+              throw new Error('release.yml did not resolve to the expected workflow path');
+            }
+            const sourceRun = await github.rest.actions.getWorkflowRun({
+              owner,
+              repo,
+              run_id: Number(runId),
+            });
+            if (sourceRun.data.workflow_id !== workflow.data.id) {
+              throw new Error('run_id must identify this repository\'s Release workflow');
+            }
+            if (sourceRun.data.event !== 'pull_request') {
+              throw new Error('run_id must identify a merged pull_request Release workflow run');
+            }
+            const jobs = await github.paginate(
+              github.rest.actions.listJobsForWorkflowRun,
+              { owner, repo, run_id: Number(runId), per_page: 100 },
+              (response) => response.data.jobs,
+            );
+            const prepare = jobs.find((job) => job.name === 'Prepare release package');
+            if (prepare?.conclusion !== 'success') {
+              throw new Error('the source run\'s Prepare release package job did not succeed');
+            }
+
+            const artifacts = await github.paginate(
+              github.rest.actions.listWorkflowRunArtifacts,
+              { owner, repo, run_id: Number(runId), per_page: 100 },
+              (response) => response.data.artifacts,
+            );
+            const releaseArtifact = artifacts.find(
+              (artifact) => artifact.name === 'release-packages',
+            );
+            if (releaseArtifact == null || releaseArtifact.expired) {
+              throw new Error('the source release-packages artifact is missing or has expired');
+            }
+
+      - name: Download original release package
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/download-artifact@v4
+        with:
+          name: release-packages
+          path: ${{ runner.temp }}/release-artifacts
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Check out merged release commit
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Read merge first parent
+        id: merge_parent
+        if: github.event_name == 'pull_request'
+        run: echo "sha=$(git rev-parse --verify HEAD^1)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js for merged release
+        if: github.event_name == 'pull_request'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Validate merged release version against merge first parent
+        if: github.event_name == 'pull_request'
+        env:
+          PREVIOUS_REF: ${{ steps.merge_parent.outputs.sha }}
+          RELEASE_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: npm run release:validate
+
+      - name: Install dependencies for merged release
+        if: github.event_name == 'pull_request'
+        run: npm ci
+
+      - name: Test release helper
+        if: github.event_name == 'pull_request'
+        run: npm run test:release
+
+      - name: Run tests for merged release
+        if: github.event_name == 'pull_request'
+        run: npm test
+
+      - name: Type-check merged release
+        if: github.event_name == 'pull_request'
+        run: npm run typecheck
+
+      - name: Require Firefox extension ID
+        if: github.event_name == 'pull_request'
+        env:
+          FIREFOX_EXTENSION_ID: ${{ secrets.FIREFOX_EXTENSION_ID }}
+        run: |
+          if [ -z "$FIREFOX_EXTENSION_ID" ]; then
+            echo "::error::Missing required secret: FIREFOX_EXTENSION_ID"
+            exit 1
+          fi
+
+      - name: Package Chrome extension
+        if: github.event_name == 'pull_request'
+        run: npm run zip:chrome
+
+      - name: Package Firefox extension and sources
+        if: github.event_name == 'pull_request'
+        env:
+          FIREFOX_EXTENSION_ID: ${{ secrets.FIREFOX_EXTENSION_ID }}
+        run: npm run zip:firefox
+
+      - name: Collect release artifacts
+        if: github.event_name == 'pull_request'
+        env:
+          RELEASE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: npm run release:package
+
+      - name: Read and validate release metadata
+        id: metadata
+        uses: actions/github-script@v7
+        env:
+          EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.merge_commit_sha || '' }}
+          METADATA_PATH: ${{ github.event_name == 'workflow_dispatch' && format('{0}/release-artifacts/release.json', runner.temp) || 'release-artifacts/release.json' }}
+        with:
+          script: |
+            const fs = require('node:fs');
+            let metadata;
+            try {
+              metadata = JSON.parse(fs.readFileSync(process.env.METADATA_PATH, 'utf8'));
+            } catch (error) {
+              throw new Error(`release metadata is unreadable: ${error.message}`);
+            }
+            if (metadata == null || typeof metadata !== 'object' || Array.isArray(metadata)) {
+              throw new Error('release metadata must be a JSON object');
+            }
+            if (typeof metadata.version !== 'string' ||
+                !/^\d+\.\d+\.\d+$/.test(metadata.version)) {
+              throw new Error('release metadata has an invalid stable version');
+            }
+            if (typeof metadata.tag !== 'string' || metadata.tag !== `v${metadata.version}`) {
+              throw new Error('release metadata tag does not match its version');
+            }
+            if (typeof metadata.sha !== 'string' || !/^[0-9a-f]{40}$/.test(metadata.sha)) {
+              throw new Error('release metadata has an invalid commit SHA');
+            }
+            if (process.env.EXPECTED_SHA && metadata.sha !== process.env.EXPECTED_SHA) {
+              throw new Error('release metadata SHA does not match the merge commit');
+            }
+            if (context.eventName === 'workflow_dispatch') {
+              const reference = await github.rest.git.getRef({
+                ...context.repo,
+                ref: `tags/${metadata.tag}`,
+              });
+              if (reference.data.object.type !== 'commit' ||
+                  reference.data.object.sha !== metadata.sha) {
+                throw new Error('release metadata SHA does not match the original release tag');
+              }
+            }
+            core.setOutput('sha', metadata.sha);
+            core.setOutput('tag', metadata.tag);
+            core.setOutput('version', metadata.version);
+
+      - name: Check out recorded release commit
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.metadata.outputs.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Restore original release package
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          ARTIFACT_PATH: ${{ runner.temp }}/release-artifacts
+        run: cp -a "$ARTIFACT_PATH" release-artifacts
+
+      - name: Set up Node.js for retry
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies for retry
+        if: github.event_name == 'workflow_dispatch'
+        run: npm ci
+
+      - name: Verify original release package
+        if: github.event_name == 'workflow_dispatch'
+        run: npm run release:verify
+
+      - name: Upload release package
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-packages
+          path: release-artifacts
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Create release tag and GitHub release
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ steps.metadata.outputs.sha }}
+          TAG: ${{ steps.metadata.outputs.tag }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f "ref=refs/tags/$TAG" -f "sha=$RELEASE_SHA"
+          gh release create "$TAG" release-artifacts/chrome.zip release-artifacts/firefox.zip \
+            --verify-tag --title "$TAG" --generate-notes
+
+  submit:
+    name: Submit store packages
+    needs: prepare
+    if: needs.prepare.outputs.store != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    concurrency:
+      group: release-submit-stores
+      cancel-in-progress: false
+    env:
+      DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
+    steps:
+      - name: Check out recorded release commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+
+      - name: Download release package
+        uses: actions/download-artifact@v4
+        with:
+          name: release-packages
+          path: release-artifacts
+          run-id: ${{ needs.prepare.outputs.artifact_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify release package provenance
+        id: verify
+        run: npm run release:verify
+
+      - name: Submit Chrome package
+        if: >-
+          ${{ !cancelled() && steps.verify.outcome == 'success' &&
+              (needs.prepare.outputs.store == 'all' || needs.prepare.outputs.store == 'chrome') }}
+        env:
+          CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+          CHROME_CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+          CHROME_CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+          CHROME_REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+        run: |
+          : "${CHROME_EXTENSION_ID:?Missing secret CHROME_EXTENSION_ID}"
+          : "${CHROME_CLIENT_ID:?Missing secret CHROME_CLIENT_ID}"
+          : "${CHROME_CLIENT_SECRET:?Missing secret CHROME_CLIENT_SECRET}"
+          : "${CHROME_REFRESH_TOKEN:?Missing secret CHROME_REFRESH_TOKEN}"
+          npx --no-install wxt submit --chrome-zip release-artifacts/chrome.zip
+
+      - name: Submit Edge package
+        if: >-
+          ${{ !cancelled() && steps.verify.outcome == 'success' &&
+              (needs.prepare.outputs.store == 'all' || needs.prepare.outputs.store == 'edge') }}
+        env:
+          EDGE_PRODUCT_ID: ${{ secrets.EDGE_PRODUCT_ID }}
+          EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+          EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
+        run: |
+          : "${EDGE_PRODUCT_ID:?Missing secret EDGE_PRODUCT_ID}"
+          : "${EDGE_CLIENT_ID:?Missing secret EDGE_CLIENT_ID}"
+          : "${EDGE_API_KEY:?Missing secret EDGE_API_KEY}"
+          npx --no-install wxt submit --edge-zip release-artifacts/chrome.zip
+
+      - name: Submit Firefox package
+        if: >-
+          ${{ !cancelled() && steps.verify.outcome == 'success' &&
+              (needs.prepare.outputs.store == 'all' || needs.prepare.outputs.store == 'firefox') }}
+        env:
+          FIREFOX_EXTENSION_ID: ${{ secrets.FIREFOX_EXTENSION_ID }}
+          FIREFOX_JWT_ISSUER: ${{ secrets.FIREFOX_JWT_ISSUER }}
+          FIREFOX_JWT_SECRET: ${{ secrets.FIREFOX_JWT_SECRET }}
+        run: |
+          : "${FIREFOX_EXTENSION_ID:?Missing secret FIREFOX_EXTENSION_ID}"
+          : "${FIREFOX_JWT_ISSUER:?Missing secret FIREFOX_JWT_ISSUER}"
+          : "${FIREFOX_JWT_SECRET:?Missing secret FIREFOX_JWT_SECRET}"
+          npx --no-install wxt submit \
+            --firefox-zip release-artifacts/firefox.zip \
+            --firefox-sources-zip release-artifacts/firefox-sources.zip \
+            --firefox-channel listed

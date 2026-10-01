@@ -6,7 +6,10 @@ export default defineConfig({
   vite: () => ({
     plugins: [tailwindcss()],
   }),
-  manifest: {
+  zip: {
+    excludeSources: ['release-artifacts/**', 'coverage/**', 'VENT.md', 'scripts/**'],
+  },
+  manifest: ({ browser }) => ({
     name: 'JustWatch CSV Exporter',
     description: 'Export JustWatch list data to Letterboxd and Trakt CSV files.',
     action: {
@@ -19,5 +22,13 @@ export default defineConfig({
     },
     permissions: ['activeTab', 'downloads', 'scripting'],
     host_permissions: ['https://www.justwatch.com/*'],
-  },
+    ...(browser === 'firefox' ? {
+      browser_specific_settings: {
+        gecko: {
+          ...(process.env.FIREFOX_EXTENSION_ID ? { id: process.env.FIREFOX_EXTENSION_ID } : {}),
+          data_collection_permissions: { required: ['none'] },
+        },
+      },
+    } : {}),
+  }),
 });
