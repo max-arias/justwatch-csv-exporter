@@ -6,6 +6,7 @@ export interface ScanJustWatchListPayload {
 }
 
 interface ProtocolMap {
+  scanJustWatchSeenPage(data: ScanJustWatchListPayload & { tabId: number }): ScanState;
   scanJustWatchList(data: ScanJustWatchListPayload): ScanResponse;
   startJustWatchScan(data: ScanJustWatchListPayload): ScanState;
   getJustWatchScanState(): ScanState;

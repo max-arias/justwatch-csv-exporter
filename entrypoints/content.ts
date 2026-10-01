@@ -91,36 +91,14 @@ async function scanPage(autoScroll: boolean): Promise<ScanResponse> {
 }
 
 async function prepareSeenListView() {
-  if (clickMyListsTab()) {
-    await waitFor(() => Boolean(findLinkByText('My Lists')?.closest('.navigation-tab-item')?.classList.contains('active')));
-  }
-
-  if (clickSeenTab()) {
-    await waitFor(() => Boolean(findTabByText('Seen')?.classList.contains('active')));
-  }
+  await waitFor(
+    () => Boolean(document.querySelector('.list-layout-switcher__item')),
+    15_000,
+  );
 
   if (clickFirstLayoutOption()) {
-    await waitFor(() => Boolean(document.querySelector('.list-layout-switcher__item.active')));
+    await waitFor(() => Boolean(document.querySelector('.list-layout-switcher__item')?.classList.contains('active')));
   }
-}
-
-function clickMyListsTab(): boolean {
-  const myListsLink = findLinkByText('My Lists');
-  const myListsTab = myListsLink?.closest<HTMLElement>('.navigation-tab-item');
-  if (myListsLink && !myListsTab?.classList.contains('active')) {
-    myListsLink.click();
-    return true;
-  }
-  return false;
-}
-
-function clickSeenTab(): boolean {
-  const seenTab = findTabByText('Seen');
-  if (seenTab && !seenTab.classList.contains('active')) {
-    seenTab.click();
-    return true;
-  }
-  return false;
 }
 
 function clickFirstLayoutOption(): boolean {
@@ -132,20 +110,13 @@ function clickFirstLayoutOption(): boolean {
   return false;
 }
 
-function findLinkByText(text: string): HTMLAnchorElement | undefined {
-  return Array.from(document.querySelectorAll<HTMLAnchorElement>('a'))
-    .find((anchor) => anchor.textContent?.trim() === text);
-}
-
-function findTabByText(text: string): HTMLElement | undefined {
-  return Array.from(document.querySelectorAll<HTMLElement>('.watchlist-inner-tab-navigation__item'))
-    .find((tab) => tab.textContent?.trim() === text);
-}
-
 async function waitFor(predicate: () => boolean, timeoutMs = 5_000) {
   const startedAt = Date.now();
   while (!predicate() && Date.now() - startedAt < timeoutMs) {
     await delay(100);
+  }
+  if (!predicate()) {
+    throw new Error('The JustWatch Seen list did not finish loading. Sign in and try again.');
   }
 }
 

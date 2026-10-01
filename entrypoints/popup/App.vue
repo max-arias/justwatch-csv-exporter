@@ -8,7 +8,8 @@ import {
   type ScanSummary,
 } from '../../src/justwatch';
 import type { ScanState } from '../../src/types';
-import { getScanStateMessage, startScanMessage } from '../../src/lib/scan-message';
+import { getScanStateMessage } from '../../src/lib/scan-message';
+import { sendMessage } from '../../src/messaging';
 
 const POLL_INTERVAL_MS = 750;
 
@@ -22,6 +23,8 @@ const summary = ref<ScanSummary>({
 const scanError = ref('');
 const hasScanned = ref(false);
 const isScanning = ref(false);
+const isPreparing = ref(true);
+let scanTabId: number | undefined;
 const isExportListOpen = ref(false);
 const selectedItemKeys = ref(new Set<string>());
 let pollTimer: number | undefined;
@@ -36,14 +39,17 @@ const canExportLetterboxd = computed(() => filteredLetterboxdRows.value > 0);
 const canExportTrakt = computed(() => filteredTraktRows.value > 0);
 
 async function scanPage() {
+  isPreparing.value = true;
   isScanning.value = true;
   scanError.value = '';
   selectedItemKeys.value = new Set();
 
   try {
-    const tabId = await getActiveJustWatchTabId();
+    const tabId = scanTabId ?? await getActiveTabId();
+    scanTabId = tabId;
 
-    const state = await startScanMessage(browser, tabId, {
+    const state = await sendMessage('scanJustWatchSeenPage', {
+      tabId,
       autoScroll: true,
     });
 
@@ -53,19 +59,8 @@ async function scanPage() {
     scanError.value = error instanceof Error ? error.message : 'Scan failed';
     isScanning.value = false;
     stopPollingScanState();
-  }
-}
-
-async function restoreScanState() {
-  try {
-    const tabId = await getActiveJustWatchTabId();
-    const state = await getScanStateMessage(browser, tabId);
-    applyScanState(state);
-    if (state.status === 'scanning') {
-      startPollingScanState(tabId);
-    }
-  } catch {
-    // Ignore restore failures. The scan button will surface actionable tab errors.
+  } finally {
+    isPreparing.value = false;
   }
 }
 
@@ -113,13 +108,14 @@ function applyScanState(state: ScanState) {
   }
 }
 
-async function getActiveJustWatchTabId() {
+async function getActiveTabId() {
   const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-  if (!tab.id || !tab.url?.includes('justwatch.com')) {
-    throw new Error('Open a JustWatch list page before scanning.');
+  if (tab.id === undefined) {
+    throw new Error('No active tab to scan.');
   }
   return tab.id;
 }
+
 
 function exportLetterboxd() {
   downloadCsv(timestampedName('letterboxd'), buildLetterboxdCsv(selectedItems.value));
@@ -193,7 +189,7 @@ function timestampedName(kind: string) {
 }
 
 onMounted(() => {
-  void restoreScanState();
+  void scanPage();
 });
 
 onUnmounted(() => {
@@ -202,7 +198,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <main class="w-full space-y-3 bg-base-100 p-4 text-base-content" :aria-busy="isScanning">
+  <main class="w-full space-y-3 bg-base-100 p-4 text-base-content" :aria-busy="isPreparing || isScanning">
     <header class="space-y-1">
       <h1 class="text-lg leading-tight font-bold tracking-tight">Seen list exporter</h1>
       <p class="text-sm leading-snug text-base-content/65">
@@ -210,9 +206,9 @@ onUnmounted(() => {
       </p>
     </header>
 
-    <button type="button" class="btn btn-primary w-full shadow-none" :disabled="isScanning" @click="scanPage">
-      <span v-if="isScanning" class="loading loading-spinner loading-sm" aria-hidden="true"></span>
-      {{ isScanning ? 'Scanning...' : 'Scan Page' }}
+    <button type="button" class="btn btn-primary w-full shadow-none" :disabled="isPreparing || isScanning" @click="scanPage">
+      <span v-if="isPreparing || isScanning" class="loading loading-spinner loading-sm" aria-hidden="true"></span>
+      {{ isPreparing ? 'Opening Seen list...' : isScanning ? 'Scanning...' : 'Scan Again' }}
     </button>
 
     <div v-if="scanError" class="alert alert-error alert-soft py-2 text-sm" role="alert">
