@@ -25,3 +25,11 @@ Trigger: `find` across successive changes to this extension.
 Workaround: Use known-symbol `grep` and targeted `read`; report the upstream failure separately.
 Suggested fix: Fail explicitly on unavailable judgment providers and offer a non-judged discovery fallback instead of presenting an empty search result.
 Impact: medium
+
+## 26-10-01 12:30 — tool_error
+
+Symptom: Release-automation discovery again returned no hits after every candidate failed with "Insufficient credits. This account never purchased credits." (HTTP 402).
+Trigger: `find` while locating publishing-sensitive extension behavior.
+Workaround: Use known file listings, literal searches, and installed WXT declarations instead; report the provider failure.
+Suggested fix: Add a deterministic discovery fallback when the judgment provider is unavailable, and do not report provider failures as empty search results.
+Impact: medium
