@@ -102,7 +102,9 @@ Create and submit the first listing manually in each store, then add these
 The installed WXT submission helper uses Chrome OAuth credentials and the current
 Edge API-key authentication. `FIREFOX_EXTENSION_ID` must be the actual Firefox
 add-on ID, not its store URL or numeric listing ID; it is also embedded in Firefox's
-manifest during packaging.
+manifest during packaging. UUID IDs include their braces
+(`{8c8f60ab-6439-48c9-8be8-a09c857dd31e}`); a bare UUID makes AMO answer 404 and is
+rejected by the release check.
 
 `npx wxt submit init` can guide credential setup locally. Never commit its
 `.env.submit` file or any other credential file; `.env*` files are ignored.

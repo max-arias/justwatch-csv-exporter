@@ -163,6 +163,12 @@ jobs:
             echo "::error::Missing required secret: FIREFOX_EXTENSION_ID"
             exit 1
           fi
+          # Firefox add-on IDs are either {UUID} (braces included) or email-like.
+          # A bare UUID is accepted by nothing: AMO answers 404 and the manifest is invalid.
+          if ! printf '%s' "$FIREFOX_EXTENSION_ID" | grep -Eq '^(\{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\}|[A-Za-z0-9._+-]*@[A-Za-z0-9._-]+)$'; then
+            echo "::error::FIREFOX_EXTENSION_ID must be a {UUID} including braces, or an email-like ID"
+            exit 1
+          fi
 
       - name: Package Chrome extension
         if: github.event_name == 'pull_request'
