@@ -104,7 +104,8 @@ Edge API-key authentication. `FIREFOX_EXTENSION_ID` must be the actual Firefox
 add-on ID, not its store URL or numeric listing ID; it is also embedded in Firefox's
 manifest during packaging. UUID IDs include their braces
 (`{8c8f60ab-6439-48c9-8be8-a09c857dd31e}`); a bare UUID makes AMO answer 404 and is
-rejected by the release check.
+rejected by the release check. The submit step percent-encodes the braces, because the
+submission helper strips literal braces and AMO cannot find a bare UUID.
 
 `npx wxt submit init` can guide credential setup locally. Never commit its
 `.env.submit` file or any other credential file; `.env*` files are ignored.

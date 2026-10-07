@@ -364,6 +364,10 @@ jobs:
           : "${FIREFOX_EXTENSION_ID:?Missing secret FIREFOX_EXTENSION_ID}"
           : "${FIREFOX_JWT_ISSUER:?Missing secret FIREFOX_JWT_ISSUER}"
           : "${FIREFOX_JWT_SECRET:?Missing secret FIREFOX_JWT_SECRET}"
+          # publish-browser-extension strips the braces from a {UUID} ID, and AMO
+          # then treats the bare UUID as a slug and answers 404. Percent-encoded
+          # braces survive the stripping and still identify the add-on by GUID.
+          FIREFOX_EXTENSION_ID="$(printf '%s' "$FIREFOX_EXTENSION_ID" | sed -e 's/^{/%7B/' -e 's/}$/%7D/')" \
           npx --no-install wxt submit \
             --firefox-zip release-artifacts/firefox.zip \
             --firefox-sources-zip release-artifacts/firefox-sources.zip \
