@@ -1,45 +1,25 @@
-export type JustWatchItemType = 'movie' | 'show' | 'season' | 'episode' | 'unknown';
+export type TitleType = 'movie' | 'show';
 
-export type ExternalIdKind = 'imdb_id' | 'tmdb_id' | 'tvdb_id';
-
-export interface ExternalId {
-  kind: ExternalIdKind;
-  value: string;
-}
-
-export interface JustWatchItem {
+export interface SeenTitle {
+  /** JustWatch node ID, e.g. `tm155787` or `ts456569`. */
+  id: string;
+  type: TitleType;
   title: string;
-  year?: string;
-  type: JustWatchItemType;
-  href: string;
+  year?: number;
+  imdbId?: string;
+  tmdbId?: string;
   url: string;
-  posterId?: string;
   posterUrl?: string;
-  description?: string;
-  imdbRating?: string;
-  watchProvider?: string;
-  seen?: boolean;
-  externalIds: ExternalId[];
-  unresolvedReason?: string;
+  /** When the title was marked in JustWatch (ISO 8601). */
+  seenAt?: string;
+  /** Episode progress for shows, 0–100. */
+  showProgress?: number;
 }
 
-export interface ScanSummary {
-  scanned: number;
-  letterboxdRows: number;
-  traktRows: number;
-  unresolvedRows: number;
-}
-
-export interface ScanResponse {
-  items: JustWatchItem[];
-  summary: ScanSummary;
-}
-
-export type ScanStatus = 'idle' | 'scanning' | 'complete' | 'error';
-
-export interface ScanState {
-  status: ScanStatus;
-  items: JustWatchItem[];
-  summary: ScanSummary;
-  error?: string;
+export interface SeenList {
+  titles: SeenTitle[];
+  /** Total entries JustWatch reports for the Seen list. */
+  total: number;
+  /** Entries that are neither a movie nor a show, or lack content. */
+  skipped: number;
 }

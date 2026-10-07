@@ -1,33 +1,79 @@
 # justwatch-csv-exporter
 
-## Scanning
+## Loading the Seen list
 
-Click the extension icon from any page. The extension automatically navigates the
-**current tab** to your JustWatch Seen list and starts extraction. It does not open
-a new tab; the current page is replaced:
+Click the extension icon on a JustWatch page to open the exporter. On any other page,
+the click opens `https://www.justwatch.com/` in a new tab instead (the page you were on
+is left alone); click the icon again there. Tabs on other sites expose no URL to the
+extension, so anything that is not `www.justwatch.com` counts as "not JustWatch".
 
-- If the current JustWatch URL already identifies your country, it uses that country.
-- Otherwise it opens `https://www.justwatch.com/`, waits for the homepage, and
-  reads the destination of the Lists link (`[data-testid="navbar-watchlist"]`).
-  That destination identifies the country without relying on the link's translated text.
-- It opens `https://www.justwatch.com/<country>/lists/my-lists?inner_tab=seenlist`
-  and waits for the page to load. No country is hardcoded or used as a fallback.
+The exporter loads your Seen list from JustWatch's own GraphQL API
+(`apis.justwatch.com/graphql`, list type `SEENLIST`), the same request the Seen page
+makes. No page content is scraped, so URL language, page layout, and list length do not
+matter.
 
-The popup displays **Opening Seen list...** during navigation, then **Scanning...**
-while extracting titles. No additional button press is required. Once finished,
-choose the titles to export, or press **Scan Again** to repeat extraction.
-You must be signed in to JustWatch to access your Seen list.
+- **Tab:** the JustWatch tab you clicked from is used. If it has no usable session within
+  5 seconds (e.g. an expired token), the extension opens `https://www.justwatch.com/` in a
+  background tab and closes it when done, unless you switched to it.
+- **Session:** requests are sent from inside that tab with the page's own access token
+  (`localStorage["jw/user"].accessToken`) and device ID. A page the extension opened gets
+  up to 15 seconds to refresh an expired token. If JustWatch rejects the token mid-load,
+  the session is renewed once in a freshly loaded tab and the same page is retried.
+- **Country:** taken from the tab URL (`/<country>/…`) or, on the homepage, from the
+  Lists link (`[data-testid="navbar-watchlist"]`). Titles are requested in English with
+  `includeTitlesWithoutUrl`, so the list is complete in every country.
+- **Data:** each entry provides its type (`MOVIE`/`SHOW`), English title, release year,
+  IMDb/TMDB IDs, the date it was marked, and episode progress for series. Other entry
+  types are counted as skipped. Entries repeated across pages are dropped.
 
-After navigation, the extension waits for the list controls to appear, selects the
-detailed layout, then scrolls and scans. Navigation and layout selection use URLs
-and CSS selectors, not translated labels such as “My Lists” or “Seen”.
-Navigation and scanning continue if the popup is closed. Opening the extension
-again while extraction is running continues that scan; opening it after completion
-starts a new extraction of the current tab.
+### Load on JustWatch
 
-If loading stalls, country discovery fails, or the tab closes, the extension reports
-an error instead of guessing a country or scanning the wrong page. A missing list
-view asks you to sign in and try again.
+- One load at a time, 20 titles per request (the site's page size), with 400 ms between
+  pages. The popup shows progress (`120/634`).
+- Each request times out after 20 seconds. Timeouts, network failures, HTTP 408/429/5xx,
+  and GraphQL rate-limit errors are retried up to 4 attempts with exponential backoff
+  (2 s, 4 s, 8 s), or `Retry-After` when longer, capped at 60 seconds.
+- Paging stops on a missing or repeated cursor, and never exceeds the pages implied by
+  the reported total plus 5 (hard cap 1,000 pages).
+- Opening JustWatch times out after 30 seconds; script injection has its own timeout.
+
+### Errors and saved state
+
+Errors name the cause when you can act on it: not signed in (sign in on the JustWatch page
+and press **Reload**), JustWatch not loading properly (e.g. a block page), country not
+detected, JustWatch not responding after retries, or a slow load. Anything else, such as a
+rejected session or the tab closing mid-load, shows "Something went wrong. Please try
+again." Details are logged in the background console.
+
+The background records the outcome of the latest load (in progress, the list, or the
+error) in `storage.session`, so it survives closing the popup and is cleared when the
+browser closes. Opening the popup shows that last outcome without reloading; it loads
+automatically only when nothing is stored, and **Reload** starts a new load. Closing the
+popup does not cancel a load. A new load replaces the stored list, so signing out and
+reloading removes it. If the background worker restarts mid-load, the popup reports the
+load as interrupted instead of spinning forever.
+
+## Exports
+
+Files are saved by the background through the downloads API, so closing the popup (for
+example when a "Save as" dialog opens) cannot cancel them.
+
+- **Letterboxd:** movies only, `Title,Year,imdbID,tmdbID`. IDs take precedence over
+  title matching. No `WatchedDate` is written, because JustWatch only records when a
+  title was marked, which would create misleading diary entries.
+- **Trakt:** `imdb_id,tmdb_id,type,watched_at`, using the date the title was marked
+  (series: when tracking started), or `unknown` when JustWatch has none. Titles without
+  an IMDb or TMDB ID are omitted because Trakt cannot match them. A `show` row marks the
+  whole series as watched; partially seen series are labelled with their progress in the
+  popup so you can deselect them.
+- Titles starting with `=`, `+`, `-`, or `@` are prefixed with `'` so spreadsheet apps
+  do not run them as formulas.
+
+## Requirements
+
+Chrome/Edge 119+ and Firefox 121+ (declared in the manifest). Permissions: `downloads`
+(CSV files), `scripting` and access to `www.justwatch.com` (session and API requests from
+a JustWatch tab), and `storage` (last result).
 
 ## Automated releases
 
@@ -131,9 +177,10 @@ npm run zip:chrome
 FIREFOX_EXTENSION_ID='your-actual-addon-id' npm run zip:firefox
 ```
 
-The Firefox manifest declares no data collection or transmission: scanning reads
-the rendered JustWatch page and CSV export writes local files. Update this
-declaration if the extension later transmits extracted data.
+The Firefox manifest declares no data collection or transmission: the Seen list is
+requested from JustWatch with the user's own JustWatch session, and CSV export writes
+local files. Nothing is sent anywhere else. Update this declaration if the extension
+later transmits extracted data.
 
 For Mozilla reviewers, extract the `*-sources.zip`, install dependencies with
 `npm ci`, and run `FIREFOX_EXTENSION_ID='<ID from the submitted manifest>' npm run

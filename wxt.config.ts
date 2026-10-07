@@ -20,15 +20,19 @@ export default defineConfig({
         128: 'icons/128.png',
       },
     },
-    permissions: ['activeTab', 'downloads', 'scripting'],
+    // `downloads`: CSV export. `scripting` + host access: read the JustWatch session
+    // and call JustWatch's API from a JustWatch tab. `storage`: keep the last result.
+    permissions: ['downloads', 'scripting', 'storage'],
     host_permissions: ['https://www.justwatch.com/*'],
+    // Promise.withResolvers is the newest platform feature the extension relies on.
     ...(browser === 'firefox' ? {
       browser_specific_settings: {
         gecko: {
           ...(process.env.FIREFOX_EXTENSION_ID ? { id: process.env.FIREFOX_EXTENSION_ID } : {}),
+          strict_min_version: '121.0',
           data_collection_permissions: { required: ['none'] },
         },
       },
-    } : {}),
+    } : { minimum_chrome_version: '119' }),
   }),
 });

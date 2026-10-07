@@ -1,44 +1,30 @@
-import type { JustWatchItem } from '../types';
+import type { SeenTitle } from '../types';
 
-export interface ExportFilters {
-  movies: boolean;
-  series: boolean;
+/**
+ * Letterboxd import format: movies only. IMDb/TMDB IDs take precedence over
+ * title matching. No WatchedDate: JustWatch only knows when a title was marked,
+ * which would create misleading diary entries.
+ */
+export function buildLetterboxdCsv(titles: SeenTitle[]): string {
+  const rows = titles
+    .filter((title) => title.type === 'movie')
+    .map((title) => [neutralizeFormula(title.title), title.year?.toString() ?? '', title.imdbId ?? '', title.tmdbId ?? '']);
+  return toCsv([['Title', 'Year', 'imdbID', 'tmdbID'], ...rows]);
 }
 
-const ALL_TYPES: ExportFilters = { movies: true, series: true };
-
-export function buildLetterboxdCsv(items: JustWatchItem[], filters: ExportFilters = ALL_TYPES): string {
-  const rows = items
-    .filter((item) => filters.movies && item.type === 'movie' && item.title && item.year)
-    .map((item) => [item.title, item.year ?? '']);
-
-  return toCsv([['Title', 'Year'], ...rows]);
+/**
+ * Trakt import format: an external ID is required, so titles without one are
+ * omitted. Trakt documents `unknown` for a watch without a known date.
+ */
+export function buildTraktCsv(titles: SeenTitle[]): string {
+  const rows = titles
+    .filter(hasExternalId)
+    .map((title) => [title.imdbId ?? '', title.tmdbId ?? '', title.type, title.seenAt ?? 'unknown']);
+  return toCsv([['imdb_id', 'tmdb_id', 'type', 'watched_at'], ...rows]);
 }
 
-export function buildTraktCsv(items: JustWatchItem[], filters: ExportFilters = ALL_TYPES): string {
-  const rows = items
-    .filter((item) => isIncludedByType(item, filters) && item.title && item.year)
-    .map((item) => [item.title, item.year ?? '', item.type, 'watched']);
-
-  return toCsv([['title', 'year', 'type', 'action'], ...rows]);
-}
-
-export function countLetterboxdRows(items: JustWatchItem[], filters: ExportFilters): number {
-  return items.filter((item) => filters.movies && item.type === 'movie' && item.title && item.year).length;
-}
-
-export function countTraktRows(items: JustWatchItem[], filters: ExportFilters): number {
-  return items.filter((item) => isIncludedByType(item, filters) && item.title && item.year).length;
-}
-
-export function downloadCsv(filename: string, csv: string) {
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  URL.revokeObjectURL(url);
+export function hasExternalId(title: SeenTitle): boolean {
+  return Boolean(title.imdbId || title.tmdbId);
 }
 
 export function csvEscape(value: string): string {
@@ -46,10 +32,11 @@ export function csvEscape(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
 }
 
-function toCsv(rows: string[][]): string {
-  return `${rows.map((row) => row.map(csvEscape).join(',')).join('\r\n')}\r\n`;
+/** Stops spreadsheet apps from running a title such as `=HYPERLINK(…)` as a formula. */
+function neutralizeFormula(value: string): string {
+  return /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
 }
 
-function isIncludedByType(item: JustWatchItem, filters: ExportFilters): boolean {
-  return (filters.movies && item.type === 'movie') || (filters.series && item.type === 'show');
+function toCsv(rows: string[][]): string {
+  return `${rows.map((row) => row.map(csvEscape).join(',')).join('\r\n')}\r\n`;
 }

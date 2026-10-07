@@ -1,15 +1,12 @@
 import { defineExtensionMessaging } from '@webext-core/messaging';
-import type { ScanResponse, ScanState } from './types';
-
-export interface ScanJustWatchListPayload {
-  autoScroll: boolean;
-}
 
 interface ProtocolMap {
-  scanJustWatchSeenPage(data: ScanJustWatchListPayload & { tabId: number }): ScanState;
-  scanJustWatchList(data: ScanJustWatchListPayload): ScanResponse;
-  startJustWatchScan(data: ScanJustWatchListPayload): ScanState;
-  getJustWatchScanState(): ScanState;
+  /** Resolves when the load finishes; the outcome is stored in `lastScan`. */
+  loadSeenList(): void;
+  /** Marks a `loading` state with no load behind it (worker restarted) as interrupted. */
+  settleScanState(): void;
+  /** Saves a CSV file through the downloads API. */
+  saveCsv(data: { filename: string; csv: string }): void;
 }
 
 export const { onMessage, sendMessage } = defineExtensionMessaging<ProtocolMap>();
