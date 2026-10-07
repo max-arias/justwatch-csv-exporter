@@ -80,10 +80,10 @@ jobs:
             if (sourceRun.data.event !== 'pull_request') {
               throw new Error('run_id must identify a merged pull_request Release workflow run');
             }
+            // Octokit's paginate already unwraps `{ total_count, jobs }` into the array.
             const jobs = await github.paginate(
               github.rest.actions.listJobsForWorkflowRun,
               { owner, repo, run_id: Number(runId), per_page: 100 },
-              (response) => response.data.jobs,
             );
             const prepare = jobs.find((job) => job.name === 'Prepare release package');
             if (prepare?.conclusion !== 'success') {
@@ -93,7 +93,6 @@ jobs:
             const artifacts = await github.paginate(
               github.rest.actions.listWorkflowRunArtifacts,
               { owner, repo, run_id: Number(runId), per_page: 100 },
-              (response) => response.data.artifacts,
             );
             const releaseArtifact = artifacts.find(
               (artifact) => artifact.name === 'release-packages',
