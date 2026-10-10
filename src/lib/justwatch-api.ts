@@ -1,4 +1,4 @@
-import type { SeenList, SeenTitle } from '../types';
+import type { ListKind, ListTitle, TitleList } from '../types';
 
 export const GRAPHQL_URL = 'https://apis.justwatch.com/graphql';
 /** Same page size the JustWatch site uses. */
@@ -17,8 +17,8 @@ const POSTER_PROFILE = 's166';
 const POSTER_FORMAT = 'jpg';
 const GENERIC_ERROR = 'Something went wrong. Please try again.';
 
-export const SEEN_LIST_QUERY = `query GetSeenList($country: Country!, $language: Language!, $after: String, $first: Int!) {
-  titleListV2(country: $country, titleListType: SEENLIST, sortBy: LAST_ADDED, first: $first, after: $after, filter: {includeTitlesWithoutUrl: true}) {
+export const TITLE_LIST_QUERY = `query GetTitleList($country: Country!, $language: Language!, $listType: TitleListTypeV2!, $after: String, $first: Int!) {
+  titleListV2(country: $country, titleListType: $listType, sortBy: LAST_ADDED, first: $first, after: $after, filter: {includeTitlesWithoutUrl: true}) {
     totalCount
     pageInfo { endCursor hasNextPage }
     edges {
@@ -32,6 +32,7 @@ export const SEEN_LIST_QUERY = `query GetSeenList($country: Country!, $language:
           posterUrl
           externalIds { imdbId tmdbId }
         }
+        watchlistEntryV2 { createdAt }
         ... on Movie { seenlistEntry { createdAt } }
         ... on Show {
           tvShowTrackingEntry { createdAt }
@@ -41,6 +42,8 @@ export const SEEN_LIST_QUERY = `query GetSeenList($country: Country!, $language:
     }
   }
 }`;
+
+const LIST_TYPES: Record<ListKind, string> = { seen: 'SEENLIST', watchlist: 'WATCHLIST' };
 
 export interface GraphqlRequestBody {
   query: string;
@@ -58,7 +61,7 @@ export interface GraphqlResponse {
 /** Sends one GraphQL request with the user's JustWatch session. */
 export type GraphqlRequest = (body: GraphqlRequestBody) => Promise<GraphqlResponse>;
 
-export interface SeenListClient {
+export interface TitleListClient {
   request: GraphqlRequest;
   /** Obtains a fresh session after JustWatch rejects the current one. */
   renewSession: () => Promise<void>;
@@ -82,7 +85,7 @@ export class JustWatchUnavailableError extends Error {
   }
 }
 
-interface SeenListNode {
+interface TitleListNode {
   id: string;
   objectType: string;
   content?: {
@@ -92,33 +95,34 @@ interface SeenListNode {
     posterUrl?: string | null;
     externalIds?: { imdbId?: string | null; tmdbId?: string | null } | null;
   } | null;
+  watchlistEntryV2?: { createdAt?: string | null } | null;
   seenlistEntry?: { createdAt?: string | null } | null;
   tvShowTrackingEntry?: { createdAt?: string | null } | null;
   seenState?: { progress?: number | null } | null;
 }
 
-interface SeenListPage {
+interface TitleListPage {
   totalCount: number;
   pageInfo: { endCursor?: string | null; hasNextPage: boolean };
-  edges: Array<{ node: SeenListNode }>;
+  edges: Array<{ node: TitleListNode }>;
 }
 
 interface GraphqlBody {
-  data?: { titleListV2?: SeenListPage | null } | null;
+  data?: { titleListV2?: TitleListPage | null } | null;
   errors?: Array<{ message?: string; extensions?: { code?: string } }>;
 }
 
 type PageOutcome =
-  | { kind: 'page'; page: SeenListPage }
+  | { kind: 'page'; page: TitleListPage }
   | { kind: 'auth' }
   | { kind: 'retry' }
   | { kind: 'fail'; detail: string };
 
 const AUTH_ERROR_CODES: Record<string, true> = { AUTHORIZATION_REQUIRED: true, UNAUTHENTICATED: true, FORBIDDEN: true };
 
-export async function fetchSeenList(client: SeenListClient, country: string): Promise<SeenList> {
+export async function fetchTitleList(client: TitleListClient, country: string, kind: ListKind): Promise<TitleList> {
   const sleep = client.sleep ?? defaultSleep;
-  const titles = new Map<string, SeenTitle>();
+  const titles = new Map<string, ListTitle>();
   const visitedCursors = new Set<string>();
   let skipped = 0;
   let total = 0;
@@ -128,13 +132,13 @@ export async function fetchSeenList(client: SeenListClient, country: string): Pr
 
   do {
     if (pages > 0) await sleep(PAGE_DELAY_MS);
-    const page = await fetchPage(client, sleep, country, after);
+    const page = await fetchPage(client, sleep, country, kind, after);
     pages += 1;
     total = page.totalCount;
     maxPages = Math.min(MAX_PAGES, Math.ceil(total / PAGE_SIZE) + EXTRA_PAGES);
 
     for (const { node } of page.edges) {
-      const title = toSeenTitle(node);
+      const title = toListTitle(node, kind);
       if (!title) skipped += 1;
       // Offset cursors shift if the list changes mid-load; keep the first copy.
       else if (!titles.has(title.id)) titles.set(title.id, title);
@@ -150,14 +154,15 @@ export async function fetchSeenList(client: SeenListClient, country: string): Pr
 }
 
 async function fetchPage(
-  client: SeenListClient,
+  client: TitleListClient,
   sleep: (ms: number) => Promise<void>,
   country: string,
+  kind: ListKind,
   after: string | undefined,
-): Promise<SeenListPage> {
+): Promise<TitleListPage> {
   const body = {
-    query: SEEN_LIST_QUERY,
-    variables: { country: country.toUpperCase(), language: 'en', first: PAGE_SIZE, after },
+    query: TITLE_LIST_QUERY,
+    variables: { country: country.toUpperCase(), language: 'en', listType: LIST_TYPES[kind], first: PAGE_SIZE, after },
   };
   let renewed = false;
 
@@ -202,7 +207,7 @@ export function retryDelay(attempt: number, retryAfter: string | null | undefine
   return Number.isFinite(requested) ? Math.min(Math.max(requested, backoff), MAX_RETRY_DELAY_MS) : backoff;
 }
 
-function toSeenTitle(node: SeenListNode): SeenTitle | undefined {
+function toListTitle(node: TitleListNode, kind: ListKind): ListTitle | undefined {
   const type = node.objectType === 'MOVIE' ? 'movie' : node.objectType === 'SHOW' ? 'show' : undefined;
   const content = node.content;
   if (!type || !content?.title || !node.id) return undefined;
@@ -216,7 +221,9 @@ function toSeenTitle(node: SeenListNode): SeenTitle | undefined {
     tmdbId: content.externalIds?.tmdbId || undefined,
     url: new URL(content.fullPath ?? '/', 'https://www.justwatch.com').toString(),
     posterUrl: posterUrl(content.posterUrl),
-    seenAt: (type === 'movie' ? node.seenlistEntry?.createdAt : node.tvShowTrackingEntry?.createdAt) ?? undefined,
+    addedAt: (kind === 'watchlist'
+      ? node.watchlistEntryV2?.createdAt
+      : type === 'movie' ? node.seenlistEntry?.createdAt : node.tvShowTrackingEntry?.createdAt) ?? undefined,
     showProgress: type === 'show' ? node.seenState?.progress ?? undefined : undefined,
   };
 }

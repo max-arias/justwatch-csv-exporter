@@ -1,6 +1,8 @@
 export type TitleType = 'movie' | 'show';
 
-export interface SeenTitle {
+export type ListKind = 'seen' | 'watchlist';
+
+export interface ListTitle {
   /** JustWatch node ID, e.g. `tm155787` or `ts456569`. */
   id: string;
   type: TitleType;
@@ -10,15 +12,15 @@ export interface SeenTitle {
   tmdbId?: string;
   url: string;
   posterUrl?: string;
-  /** When the title was marked in JustWatch (ISO 8601). */
-  seenAt?: string;
+  /** When the title was added to the list in JustWatch (ISO 8601): marked seen / series tracking started / added to watchlist. */
+  addedAt?: string;
   /** Episode progress for shows, 0–100. */
   showProgress?: number;
 }
 
-export interface SeenList {
-  titles: SeenTitle[];
-  /** Total entries JustWatch reports for the Seen list. */
+export interface TitleList {
+  titles: ListTitle[];
+  /** Total entries JustWatch reports for the list. */
   total: number;
   /** Entries that are neither a movie nor a show, or lack content. */
   skipped: number;

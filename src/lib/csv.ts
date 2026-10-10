@@ -1,11 +1,12 @@
-import type { SeenTitle } from '../types';
+import type { ListKind, ListTitle } from '../types';
 
 /**
- * Letterboxd import format: movies only. IMDb/TMDB IDs take precedence over
+ * Letterboxd import format: movies only. The same file imports as watched films
+ * or into the Letterboxd watchlist. IMDb/TMDB IDs take precedence over
  * title matching. No WatchedDate: JustWatch only knows when a title was marked,
  * which would create misleading diary entries.
  */
-export function buildLetterboxdCsv(titles: SeenTitle[]): string {
+export function buildLetterboxdCsv(titles: ListTitle[]): string {
   const rows = titles
     .filter((title) => title.type === 'movie')
     .map((title) => [neutralizeFormula(title.title), title.year?.toString() ?? '', title.imdbId ?? '', title.tmdbId ?? '']);
@@ -14,16 +15,18 @@ export function buildLetterboxdCsv(titles: SeenTitle[]): string {
 
 /**
  * Trakt import format: an external ID is required, so titles without one are
- * omitted. Trakt documents `unknown` for a watch without a known date.
+ * omitted. Seen rows use `watched_at` (`unknown` when JustWatch has no date);
+ * watchlist rows use `watchlisted_at`, falling back to the export time.
  */
-export function buildTraktCsv(titles: SeenTitle[]): string {
+export function buildTraktCsv(titles: ListTitle[], kind: ListKind, exportedAt = new Date().toISOString()): string {
+  const [dateColumn, missingDate] = kind === 'seen' ? ['watched_at', 'unknown'] : ['watchlisted_at', exportedAt];
   const rows = titles
     .filter(hasExternalId)
-    .map((title) => [title.imdbId ?? '', title.tmdbId ?? '', title.type, title.seenAt ?? 'unknown']);
-  return toCsv([['imdb_id', 'tmdb_id', 'type', 'watched_at'], ...rows]);
+    .map((title) => [title.imdbId ?? '', title.tmdbId ?? '', title.type, title.addedAt ?? missingDate]);
+  return toCsv([['imdb_id', 'tmdb_id', 'type', dateColumn], ...rows]);
 }
 
-export function hasExternalId(title: SeenTitle): boolean {
+export function hasExternalId(title: ListTitle): boolean {
   return Boolean(title.imdbId || title.tmdbId);
 }
 

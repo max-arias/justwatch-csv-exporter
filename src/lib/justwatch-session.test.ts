@@ -3,7 +3,7 @@ import type { browser, Browser } from 'wxt/browser';
 import type { GraphqlResponse } from './justwatch-api';
 import {
   findJustWatchTab,
-  loadSeenList,
+  loadTitleList,
   waitForJustWatch,
   readPageSession,
   readSession,
@@ -75,10 +75,10 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-describe('loadSeenList', () => {
+describe('loadTitleList', () => {
   it('opens a background tab when no JustWatch tab exists, and closes it afterwards', async () => {
     const h = harness([{ id: 1, url: 'https://example.com/form', active: true, status: 'complete' }], {}, {});
-    const list = await loadSeenList(h.api);
+    const list = await loadTitleList(h.api, 'seen');
     expect(list.titles.map((title) => title.title)).toEqual(['GoodFellas']);
     expect(h.tabsApi.create).toHaveBeenCalledWith({ url: 'https://www.justwatch.com/', active: false });
     expect(h.tabs.get(1)?.url).toBe('https://example.com/form');
@@ -91,33 +91,33 @@ describe('loadSeenList', () => {
       h.tabs.set(target.tabId, { ...h.tabs.get(target.tabId)!, active: true });
       return [{ result: signedIn }];
     });
-    await loadSeenList(h.api);
+    await loadTitleList(h.api, 'seen');
     expect(h.tabsApi.remove).not.toHaveBeenCalled();
   });
 
   it('uses an existing JustWatch tab without opening another', async () => {
     const h = harness([{ id: 7, url: 'https://www.justwatch.com/jp', status: 'complete' }], { 7: signedIn }, {});
-    await loadSeenList(h.api);
+    await loadTitleList(h.api, 'seen');
     expect(h.tabsApi.create).not.toHaveBeenCalled();
     expect(h.executeScript.mock.calls.every(([options]) => options.target.tabId === 7)).toBe(true);
   });
 
   it('reports a signed-out user from an existing tab without opening another', async () => {
     const h = harness([{ id: 7, url: 'https://www.justwatch.com/us', status: 'complete' }], { 7: { ...signedIn, signedIn: false, accessToken: undefined } }, {});
-    await expect(loadSeenList(h.api)).rejects.toBeInstanceOf(SignedOutError);
+    await expect(loadTitleList(h.api, 'seen')).rejects.toBeInstanceOf(SignedOutError);
     expect(h.tabsApi.create).not.toHaveBeenCalled();
   });
 
   it('falls back to its own tab when an existing tab has no usable token', async () => {
     const h = harness([{ id: 7, url: 'https://www.justwatch.com/us', status: 'complete' }], { 7: { ...signedIn, accessToken: undefined } }, {});
-    await loadSeenList(h.api);
+    await loadTitleList(h.api, 'seen');
     expect(h.tabsApi.create).toHaveBeenCalledTimes(1);
     expect(h.executeScript.mock.calls.at(-1)?.[0].target.tabId).toBe(100);
   });
 
   it('renews a rejected session in a freshly loaded tab and retries there', async () => {
     const h = harness([{ id: 7, url: 'https://www.justwatch.com/us', status: 'complete' }], { 7: signedIn }, { 7: [{ status: 401, body: null }] });
-    await expect(loadSeenList(h.api)).resolves.toMatchObject({ total: 1 });
+    await expect(loadTitleList(h.api, 'seen')).resolves.toMatchObject({ total: 1 });
     expect(h.tabsApi.create).toHaveBeenCalledTimes(1);
     expect(h.executeScript.mock.calls.at(-1)?.[0].target.tabId).toBe(100);
   });
@@ -128,7 +128,7 @@ describe('loadSeenList', () => {
     h.executeScript.mockImplementationOnce(async () => {
       throw new Error('Frame with ID 0 was removed.');
     });
-    await expect(loadSeenList(h.api)).rejects.toThrow('Something went wrong. Please try again.');
+    await expect(loadTitleList(h.api, 'seen')).rejects.toThrow('Something went wrong. Please try again.');
   });
 });
 

@@ -1,6 +1,6 @@
 import type { browser, Browser } from 'wxt/browser';
-import type { SeenList } from '../types';
-import { fetchSeenList, GRAPHQL_URL, type GraphqlRequestBody, type GraphqlResponse } from './justwatch-api';
+import type { ListKind, TitleList } from '../types';
+import { fetchTitleList, GRAPHQL_URL, type GraphqlRequestBody, type GraphqlResponse } from './justwatch-api';
 import { isJustWatchUrl, JUSTWATCH_HOME, JUSTWATCH_ORIGIN } from './justwatch-url';
 
 const LOAD_TIMEOUT_MS = 30_000;
@@ -34,7 +34,7 @@ export interface JustWatchSession {
 
 export class SignedOutError extends Error {
   constructor() {
-    super('You are not signed in to JustWatch. Sign in on this page, then press Reload.');
+    super('You are not signed in to JustWatch. Sign in on this page, then load the list again.');
     this.name = 'SignedOutError';
   }
 }
@@ -48,21 +48,23 @@ class StaleSessionError extends Error {
 }
 
 /**
- * Loads the signed-in user's Seen list through JustWatch's own API, using the
+ * Loads one of the signed-in user's lists (Seen or Watchlist) through JustWatch's own API, using the
  * session of a JustWatch page. An open JustWatch tab is reused; otherwise a
  * background tab is opened and closed again afterwards. The user's current tab
  * is never navigated.
  */
-export async function loadSeenList(
+export async function loadTitleList(
   api: BrowserApi,
+  kind: ListKind,
   onProgress?: (loaded: number, total: number) => void,
-): Promise<SeenList> {
+): Promise<TitleList> {
   const source = new TabSessionSource(api);
   try {
     await source.start();
-    return await fetchSeenList(
+    return await fetchTitleList(
       { request: (body) => source.request(body), renewSession: () => source.renew(), onProgress },
       source.country,
+      kind,
     );
   } finally {
     await source.dispose();

@@ -2,84 +2,109 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { buildLetterboxdCsv, buildTraktCsv, hasExternalId } from '../../src/lib/csv';
 import { isJustWatchUrl, JUSTWATCH_HOME } from '../../src/lib/justwatch-url';
-import { lastScan, type ScanState } from '../../src/lib/scan-state';
+import { activeList, scanStates, type ScanState } from '../../src/lib/scan-state';
 import { sendMessage } from '../../src/messaging';
-import type { SeenTitle } from '../../src/types';
+import type { ListKind, ListTitle } from '../../src/types';
 
-const scan = ref<ScanState | null>(null);
+const LABELS: Record<ListKind, string> = { seen: 'Seen list', watchlist: 'Watchlist' };
+const KINDS = ['seen', 'watchlist'] as const;
+
+const activeKind = ref<ListKind>('seen');
+const scans = ref<Record<ListKind, ScanState | null>>({ seen: null, watchlist: null });
+const selections = ref<Record<ListKind, Set<string>>>({ seen: new Set(), watchlist: new Set() });
 const hasReadState = ref(false);
 /** The popup only works on JustWatch; elsewhere a click opens JustWatch instead. */
 const isOnJustWatch = ref(false);
 const requestError = ref('');
 const isExportListOpen = ref(false);
-const selectedIds = ref(new Set<string>());
-let unwatch: (() => void) | undefined;
+let unwatchers: Array<() => void> = [];
 
+const scan = computed(() => scans.value[activeKind.value]);
+const selectedIds = computed(() => selections.value[activeKind.value]);
 const isLoading = computed(() => !hasReadState.value || scan.value?.status === 'loading');
-const seenList = computed(() => (scan.value?.status === 'complete' ? scan.value.list : undefined));
+const otherLoading = computed(() =>
+  KINDS.find((kind) => kind !== activeKind.value && scans.value[kind]?.status === 'loading'),
+);
+const list = computed(() => (scan.value?.status === 'complete' ? scan.value.list : undefined));
 const loadError = computed(() => (scan.value?.status === 'error' ? scan.value.error : requestError.value));
 const loadedAt = computed(() =>
   scan.value?.status === 'complete' ? new Date(scan.value.finishedAt).toLocaleString() : undefined,
 );
-const loadingLabel = computed(() => {
+const loadLabel = computed(() => {
+  const label = LABELS[activeKind.value];
   const state = scan.value;
-  if (state?.status !== 'loading' || !state.total) return 'Loading Seen list...';
-  return `Loading Seen list... ${Math.min(state.loaded ?? 0, state.total)}/${state.total}`;
+  if (!isLoading.value) return `${list.value ? 'Reload' : 'Load'} ${label}`;
+  if (state?.status !== 'loading' || !state.total) return `Loading ${label}...`;
+  return `Loading ${label}... ${Math.min(state.loaded ?? 0, state.total)}/${state.total}`;
 });
-const titles = computed(() => seenList.value?.titles ?? []);
+const titles = computed(() => list.value?.titles ?? []);
 const selectedTitles = computed(() => titles.value.filter((title) => selectedIds.value.has(title.id)));
 const selectedMovies = computed(() => selectedTitles.value.filter((title) => title.type === 'movie').length);
 const selectedSeries = computed(() => selectedTitles.value.filter((title) => title.type === 'show').length);
 const selectedTraktRows = computed(() => selectedTitles.value.filter(hasExternalId).length);
 
-function applyScan(state: ScanState | null) {
+function applyScan(kind: ListKind, state: ScanState | null) {
+  const previous = scans.value[kind];
   const isNewList = state?.status === 'complete'
-    && !(scan.value?.status === 'complete' && scan.value.finishedAt === state.finishedAt);
-  scan.value = state;
-  if (isNewList) selectAll();
+    && !(previous?.status === 'complete' && previous.finishedAt === state.finishedAt);
+  scans.value[kind] = state;
+  if (state?.status === 'complete' && isNewList) {
+    selections.value[kind] = new Set(state.list.titles.map((title) => title.id));
+  }
+}
+
+function selectTab(kind: ListKind) {
+  activeKind.value = kind;
+  requestError.value = '';
+  void activeList.setValue(kind);
 }
 
 async function loadList() {
   requestError.value = '';
   try {
-    await sendMessage('loadSeenList');
-  } catch {
-    requestError.value = 'Something went wrong. Please try again.';
+    await sendMessage('loadList', activeKind.value);
+  } catch (error) {
+    requestError.value = error instanceof Error ? error.message : 'Something went wrong. Please try again.';
   }
 }
 
-async function exportCsv(kind: string, csv: string) {
+async function exportCsv(service: string, csv: string) {
   requestError.value = '';
+  const filename = `justwatch-${activeKind.value}-${service}-${new Date().toISOString().slice(0, 10)}.csv`;
   try {
-    await sendMessage('saveCsv', { filename: `justwatch-${kind}-${new Date().toISOString().slice(0, 10)}.csv`, csv });
+    await sendMessage('saveCsv', { filename, csv });
   } catch (error) {
     requestError.value = error instanceof Error ? error.message : 'Could not save the CSV file. Please try again.';
   }
 }
 
+function setSelection(titlesToSelect: ListTitle[]) {
+  selections.value[activeKind.value] = new Set(titlesToSelect.map((title) => title.id));
+}
+
 function selectAll() {
-  selectedIds.value = new Set(titles.value.map((title) => title.id));
+  setSelection(titles.value);
 }
 
 function selectNone() {
-  selectedIds.value = new Set();
+  setSelection([]);
 }
 
-function selectByType(type: SeenTitle['type']) {
-  selectedIds.value = new Set(titles.value.filter((title) => title.type === type).map((title) => title.id));
+function selectByType(type: ListTitle['type']) {
+  setSelection(titles.value.filter((title) => title.type === type));
 }
 
 function invertSelection() {
-  selectedIds.value = new Set(titles.value.filter((title) => !selectedIds.value.has(title.id)).map((title) => title.id));
+  setSelection(titles.value.filter((title) => !selectedIds.value.has(title.id)));
 }
 
-function toggleTitle(title: SeenTitle) {
+function toggleTitle(title: ListTitle) {
   const next = new Set(selectedIds.value);
   if (!next.delete(title.id)) next.add(title.id);
-  selectedIds.value = next;
+  selections.value[activeKind.value] = next;
 }
 
-function titleDetails(title: SeenTitle) {
+function titleDetails(title: ListTitle) {
   const parts = [title.year?.toString() ?? 'Unknown year', title.type === 'show' ? 'Series' : 'Movie'];
   if (title.type === 'show' && title.showProgress !== undefined && title.showProgress < 100) {
     parts.push(`${Math.round(title.showProgress)}% seen`);
@@ -103,31 +128,52 @@ onMounted(async () => {
   }
   isOnJustWatch.value = true;
 
-  unwatch = lastScan.watch(applyScan);
+  unwatchers = KINDS.map((kind) => scanStates[kind].watch((state) => applyScan(kind, state)));
   await sendMessage('settleScanState').catch(() => {});
-  const state = await lastScan.getValue();
-  applyScan(state);
+  const [seen, watchlist, kind] = await Promise.all([
+    scanStates.seen.getValue(),
+    scanStates.watchlist.getValue(),
+    activeList.getValue(),
+  ]);
+  applyScan('seen', seen);
+  applyScan('watchlist', watchlist);
+  activeKind.value = kind;
   hasReadState.value = true;
-  // Show the last result when there is one; load automatically only on first use.
-  if (!state) void loadList();
 });
 
-onUnmounted(() => unwatch?.());
+onUnmounted(() => unwatchers.forEach((unwatch) => unwatch()));
 </script>
 
 <template>
   <main v-if="isOnJustWatch" class="w-full space-y-3 bg-base-100 p-4 text-base-content" :aria-busy="isLoading">
     <header class="space-y-1">
-      <h1 class="text-lg leading-tight font-bold tracking-tight">Export your Seen list</h1>
+      <h1 class="text-lg leading-tight font-bold tracking-tight">Export your JustWatch lists</h1>
       <p class="text-sm leading-snug text-base-content/65">
-        Choose the titles to keep, then download a CSV for Letterboxd or Trakt.
+        Pick a list and load it, choose the titles to keep, then download a CSV for Letterboxd or Trakt.
       </p>
     </header>
 
-    <button type="button" class="btn btn-primary w-full shadow-none" :disabled="isLoading" @click="loadList">
+    <div role="tablist" class="tabs tabs-box tabs-sm w-full" aria-label="JustWatch list">
+      <button
+        v-for="kind in KINDS"
+        :key="kind"
+        type="button"
+        role="tab"
+        class="tab flex-1"
+        :class="{ 'tab-active': activeKind === kind }"
+        :aria-selected="activeKind === kind"
+        @click="selectTab(kind)"
+      >
+        {{ kind === 'seen' ? 'Seen' : 'Watchlist' }}
+      </button>
+    </div>
+
+    <button type="button" class="btn btn-primary w-full shadow-none" :disabled="isLoading || Boolean(otherLoading)" @click="loadList">
       <span v-if="isLoading" class="loading loading-spinner loading-sm" aria-hidden="true"></span>
-      {{ isLoading ? loadingLabel : 'Reload' }}
+      {{ loadLabel }}
     </button>
+
+    <p v-if="otherLoading" class="text-xs text-base-content/60">Wait for the {{ LABELS[otherLoading] }} to finish loading.</p>
 
     <p v-if="loadedAt" class="text-xs text-base-content/60">Last loaded {{ loadedAt }}</p>
 
@@ -135,7 +181,7 @@ onUnmounted(() => unwatch?.());
       {{ loadError }}
     </div>
 
-    <section v-if="seenList" class="stats w-full overflow-hidden border border-base-300 bg-base-100 shadow-sm" aria-label="Seen list summary">
+    <section v-if="list" class="stats w-full overflow-hidden border border-base-300 bg-base-100 shadow-sm" :aria-label="`${LABELS[activeKind]} summary`">
       <div class="stat place-items-center px-2 py-2.5">
         <div class="stat-value text-base leading-none">{{ titles.length }}</div>
         <div class="stat-title text-[0.7rem]">Titles</div>
@@ -150,8 +196,8 @@ onUnmounted(() => unwatch?.());
       </div>
     </section>
 
-    <p v-if="seenList && seenList.skipped > 0" class="text-xs text-base-content/60">
-      {{ seenList.skipped }} of {{ seenList.total }} Seen entries are not movies or series and were skipped.
+    <p v-if="list && list.skipped > 0" class="text-xs text-base-content/60">
+      {{ list.skipped }} of {{ list.total }} {{ LABELS[activeKind] }} entries are not movies or series and were skipped.
     </p>
 
     <details
@@ -199,8 +245,8 @@ onUnmounted(() => unwatch?.());
       </div>
     </details>
 
-    <div v-else-if="seenList" class="alert alert-info alert-soft py-2 text-sm">
-      Your JustWatch Seen list has no movies or series.
+    <div v-else-if="list" class="alert alert-info alert-soft py-2 text-sm">
+      Your JustWatch {{ LABELS[activeKind] }} has no movies or series.
     </div>
 
     <section v-if="titles.length > 0" class="space-y-1.5">
@@ -213,11 +259,17 @@ onUnmounted(() => unwatch?.());
           <span>Letterboxd</span>
           <span class="badge badge-sm">{{ selectedMovies }}</span>
         </button>
-        <button type="button" class="btn btn-neutral btn-sm justify-between shadow-none" :disabled="selectedTraktRows === 0" @click="exportCsv('trakt', buildTraktCsv(selectedTitles))">
+        <button type="button" class="btn btn-neutral btn-sm justify-between shadow-none" :disabled="selectedTraktRows === 0" @click="exportCsv('trakt', buildTraktCsv(selectedTitles, activeKind))">
           <span>Trakt</span>
           <span class="badge badge-sm">{{ selectedTraktRows }}</span>
         </button>
       </div>
+
+      <p class="text-xs text-base-content/60">
+        {{ activeKind === 'seen'
+          ? 'Letterboxd and Trakt mark these titles as watched.'
+          : 'On Letterboxd, import the file into your watchlist. Trakt adds these titles to your watchlist.' }}
+      </p>
     </section>
   </main>
 </template>
